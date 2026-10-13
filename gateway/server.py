@@ -99,6 +99,9 @@ async def frame_jpg(x_gateway_token: str | None = Header(None)):
                     headers={"Cache-Control": "no-store", "X-Frame-Age": f"{snap.age:.2f}"})
 
 
+# Registered at import, before Pipecat's runner adds its own GET /status (which
+# only lists transports), so this one wins. The prebuilt /client doesn't call
+# /status; if you switch to the runner's /start flow, move this route.
 @app.get("/status")
 async def status(x_gateway_token: str | None = Header(None)):
     s = hub.status()
