@@ -80,7 +80,10 @@ async def device_frame(request: Request, x_device_key: str | None = Header(None)
     body = await request.body()
     if len(body) < 100 or body[:2] != b"\xff\xd8":
         raise HTTPException(400, "expected a JPEG")
-    hub.put(body, x_device_id)
+    try:
+        hub.put(body, x_device_id)
+    except Exception:  # PIL can't read it: corrupt or not really a JPEG
+        raise HTTPException(400, "expected a JPEG")
     if x_device_info:
         hub.device_info = {"info": x_device_info}
     return JSONResponse(hub.camera)
@@ -109,13 +112,43 @@ async def status(x_gateway_token: str | None = Header(None)):
     return s
 
 
+def _number(lo: float, hi: float, integer: bool = False):
+    def ok(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+            return False
+        return not integer or float(v).is_integer()
+    return ok
+
+
+# The same limits the firmware enforces (uploader.c / cam.c); anything else it would ignore.
+CAMERA_SETTINGS = {
+    "fps": (_number(0.2, 15), "a number from 0.2 to 15"),
+    "framesize": (lambda v: v in ("QVGA", "VGA", "SVGA", "HD"), "QVGA, VGA, SVGA or HD"),
+    "quality": (_number(10, 63, integer=True), "a whole number from 10 (best) to 63 (smallest)"),
+    "vflip": (lambda v: isinstance(v, bool), "true or false"),
+    "hmirror": (lambda v: isinstance(v, bool), "true or false"),
+}
+
+
 @app.post("/camera")
 async def set_camera(request: Request, x_gateway_token: str | None = Header(None)):
+    """Change camera settings live; the device picks them up with its next frame."""
     _check(x_gateway_token, GATEWAY_TOKEN)
-    body = await request.json()
-    for k in ("fps", "framesize", "quality", "vflip", "hmirror"):
-        if k in body:
-            hub.camera[k] = body[k]
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "send a JSON object, e.g. {\"fps\": 3}")
+    unknown = set(body) - set(CAMERA_SETTINGS)
+    if unknown:
+        raise HTTPException(400, f"unknown setting(s): {', '.join(sorted(unknown))}")
+    for k, v in body.items():
+        valid, expected = CAMERA_SETTINGS[k]
+        if not valid(v):
+            raise HTTPException(400, f"{k} must be {expected}")
+    for k, v in body.items():
+        hub.camera[k] = int(v) if k == "quality" else v
     return hub.camera
 
 

@@ -138,7 +138,7 @@ Check: it greets you, and when you ask "what do you see?" it describes what's in
   curl -X POST http://localhost:7860/camera -H "X-Gateway-Token: <DEVICE_KEY>" \
        -H "Content-Type: application/json" -d '{"vflip": true, "hmirror": true}'
   ```
-  The camera picks up the change with the next frame, no reflash. The same call changes `fps` (0.2 to 15), `framesize` (QVGA, VGA, SVGA, HD) and `quality` (10 best, 40 smallest).
+  The camera picks up the change with the next frame, no reflash. The same call changes `fps` (0.2 to 15), `framesize` (QVGA, VGA, SVGA, HD) and `quality` (10 best, 63 smallest; 10 to 20 is a good range). Invalid values are rejected with a message saying why.
 
 The board gets warm when streaming. That is normal. Don't seal it in a closed box without air holes.
 

@@ -80,7 +80,7 @@ async def say(text: str) -> str:
 
 @mcp.tool()
 async def set_camera(fps: float | None = None, framesize: str | None = None, quality: int | None = None) -> dict:
-    """Change camera settings. framesize: QVGA (320x240), VGA (640x480), SVGA, HD. quality: 10 (best) to 40."""
+    """Change camera settings. framesize: QVGA (320x240), VGA (640x480), SVGA, HD. quality: 10 (best) to 63 (smallest)."""
     body = {k: v for k, v in {"fps": fps, "framesize": framesize, "quality": quality}.items() if v is not None}
     async with httpx.AsyncClient() as c:
         r = await c.post(f"{GATEWAY}/camera", json=body, headers=HEADERS, timeout=10)
