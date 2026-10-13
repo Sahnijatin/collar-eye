@@ -1,6 +1,7 @@
 """Pipeline pieces that connect the camera to the conversation."""
 
 import asyncio
+import base64
 
 from loguru import logger
 from pipecat.frames.frames import Frame, InputImageRawFrame, LLMContextFrame, OutputImageRawFrame
@@ -9,6 +10,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from eye import EyeHub
 
 PLACEHOLDER = "[earlier camera frame removed]"
+LIVE_LABEL = "(Live view from the collar camera:)"
 
 
 class AttachLatestFrame(FrameProcessor):
@@ -36,28 +38,40 @@ class AttachLatestFrame(FrameProcessor):
         # Only plain dict messages are touched. The context can also hold
         # LLMSpecificMessage objects (Gemini thought signatures, saved thinking);
         # those pass through as they are.
-        # strip images from older turns
+        last_user = next((m for m in reversed(messages)
+                          if isinstance(m, dict) and m.get("role") == "user"), None)
         for m in messages:
-            if isinstance(m, dict) and isinstance(m.get("content"), list):
+            if not (isinstance(m, dict) and isinstance(m.get("content"), list)):
+                continue
+            if m is last_user:
+                # The same turn can reach the LLM more than once (interruptions,
+                # re-runs): drop what we attached before, a fresh frame goes on below.
+                m["content"] = [p for p in m["content"] if not _ours(p)]
+            else:
+                # strip images from older turns
                 m["content"] = [
-                    p if p.get("type") != "image_url" else {"type": "text", "text": PLACEHOLDER}
+                    p if not (isinstance(p, dict) and p.get("type") == "image_url")
+                    else {"type": "text", "text": PLACEHOLDER}
                     for p in m["content"]
                 ]
         snap = self._hub.latest(max_age=self._max_age)
-        if snap:
-            import base64
+        if snap and last_user is not None:
             url = "data:image/jpeg;base64," + base64.b64encode(snap.jpeg).decode()
-            for m in reversed(messages):
-                if isinstance(m, dict) and m.get("role") == "user":
-                    content = m["content"]
-                    if isinstance(content, str):
-                        content = [{"type": "text", "text": content}]
-                    content.append({"type": "text", "text": "(Live view from the collar camera:)"})
-                    content.append({"type": "image_url", "image_url": {"url": url}})
-                    m["content"] = content
-                    break
+            content = last_user["content"]
+            if isinstance(content, str):
+                content = [{"type": "text", "text": content}]
+            content.append({"type": "text", "text": LIVE_LABEL})
+            content.append({"type": "image_url", "image_url": {"url": url}})
+            last_user["content"] = content
             logger.debug(f"Attached camera frame {snap.width}x{snap.height}, {snap.age:.1f}s old")
         context.set_messages(messages)
+
+
+def _ours(part) -> bool:
+    """A content part AttachLatestFrame added (label, image or placeholder)."""
+    if not isinstance(part, dict):
+        return False
+    return part.get("type") == "image_url" or part.get("text") in (LIVE_LABEL, PLACEHOLDER)
 
 
 class CameraFeeder:

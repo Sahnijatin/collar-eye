@@ -8,7 +8,7 @@ from PIL import Image
 from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
 
 from eye import EyeHub
-from processors import PLACEHOLDER, AttachLatestFrame
+from processors import LIVE_LABEL, PLACEHOLDER, AttachLatestFrame
 
 
 def _jpeg(color="blue"):
@@ -60,3 +60,13 @@ def test_no_frame_when_camera_is_stale():
     ctx = LLMContext([{"role": "user", "content": "hello"}])
     AttachLatestFrame(hub)._attach(ctx)
     assert ctx.get_messages()[-1]["content"] == "hello"
+
+
+def test_same_turn_twice_keeps_one_attachment():
+    ctx = LLMContext([{"role": "user", "content": "what is this?"}])
+    p = AttachLatestFrame(_hub())
+    p._attach(ctx)
+    p._attach(ctx)  # e.g. the turn is re-run after an interruption
+    content = ctx.get_messages()[-1]["content"]
+    assert len(_images(ctx.get_messages()[-1])) == 1
+    assert [x.get("text") for x in content if x.get("type") == "text"] == ["what is this?", LIVE_LABEL]
