@@ -48,7 +48,7 @@ Most LLMs (Claude, GPT, GLM, Kimi, Llama) take images, not a video stream. The g
    python server.py -t webrtc --host 0.0.0.0
    ```
 4. Join the camera's `CollarEye-XXXX` hotspot from your phone, fill in hotspot name, password, gateway URL `http://<laptop-ip>:7860` and the DEVICE_KEY.
-5. Open `http://<laptop-ip>:7860/eye` to see the camera. For voice, open the HTTPS tunnel URL `/client` on the phone (see BUILD.md, step 5), plug in earphones, tap Connect, talk.
+5. Open `http://<laptop-ip>:7860/eye` and enter the DEVICE_KEY (or GATEWAY_TOKEN) to see the camera. For voice, open the HTTPS tunnel URL `/client` on the phone (see BUILD.md, step 5), plug in earphones, tap Connect, talk.
 
 ## Cost
 

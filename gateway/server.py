@@ -81,8 +81,8 @@ async def device_frame(request: Request, x_device_key: str | None = Header(None)
 
 
 @app.get("/frame.jpg")
-async def frame_jpg(token: str | None = None, x_gateway_token: str | None = Header(None)):
-    _check(token or x_gateway_token, GATEWAY_TOKEN)
+async def frame_jpg(x_gateway_token: str | None = Header(None)):
+    _check(x_gateway_token, GATEWAY_TOKEN)
     snap = hub.latest()
     if not snap:
         raise HTTPException(404, "no frames yet")
@@ -119,20 +119,43 @@ async def say(request: Request, x_gateway_token: str | None = Header(None)):
     return {"ok": True}
 
 
-@app.get("/eye", response_class=HTMLResponse)
-async def eye_page(token: str = ""):
-    return f"""<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+# Static page: nothing from the request is put into the HTML. The token is
+# typed once (or passed as #token=... which never reaches the server), kept in
+# sessionStorage and sent as a header, so it never shows up in URLs or logs.
+EYE_PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Collar Eye</title><body style="margin:0;background:#000;color:#9aa3b2;font:14px system-ui">
+<form id=f style="display:none;padding:12px"><input id=k type=password placeholder="Gateway token (DEVICE_KEY)"
+ style="width:70%;padding:8px"> <button>Open</button></form>
 <img id=v style="width:100%;display:block"><div id=s style="padding:8px"></div>
 <script>
-const t={token!r};
-async function tick(){{
-  document.getElementById('v').src='/frame.jpg?token='+encodeURIComponent(t)+'&_='+Date.now();
-  try{{const s=await (await fetch('/status')).json();
-  document.getElementById('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off');}}catch(e){{}}
-}}
+const $=id=>document.getElementById(id);
+let t='';
+try{t=new URLSearchParams(location.hash.slice(1)).get('token')||sessionStorage.getItem('eyeToken')||'';}catch(e){}
+if(location.hash)history.replaceState(null,'',location.pathname);
+function save(v){t=v;try{sessionStorage.setItem('eyeToken',v);}catch(e){}}
+if(t)save(t);else $('f').style.display='block';
+$('f').onsubmit=e=>{e.preventDefault();save($('k').value.trim());$('f').style.display='none';};
+let busy=false;
+async function tick(){
+  try{const s=await (await fetch('/status')).json();
+  $('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off');}catch(e){}
+  if(!t||busy)return;
+  busy=true;
+  try{
+    const r=await fetch('/frame.jpg',{headers:{'X-Gateway-Token':t},cache:'no-store'});
+    if(r.status===401){t='';try{sessionStorage.removeItem('eyeToken');}catch(e){}
+      $('f').style.display='block';$('s').textContent='Wrong token';}
+    else if(r.ok){const u=URL.createObjectURL(await r.blob());const old=$('v').src;$('v').src=u;
+      if(old.startsWith('blob:'))URL.revokeObjectURL(old);}
+  }catch(e){}finally{busy=false;}
+}
 setInterval(tick,500);tick();
 </script>"""
+
+
+@app.get("/eye", response_class=HTMLResponse)
+async def eye_page():
+    return EYE_PAGE
 
 
 # ---------------------------------------------------------------- voice bot

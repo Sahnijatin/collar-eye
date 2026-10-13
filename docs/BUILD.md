@@ -107,7 +107,7 @@ Check: `http://localhost:7860/status` on the laptop shows JSON.
 
 To change any of this later: with the camera powered on and running, hold **BOOT** for 3 seconds. It forgets its settings, restarts, and the setup hotspot comes back. (Don't hold BOOT while plugging it in: that starts the chip's flashing mode instead.) If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying.
 
-Check: on the laptop open `http://localhost:7860/eye`. You see the live view and "Live · 2 fps".
+Check: on the laptop open `http://localhost:7860/eye` and type the DEVICE_KEY (or GATEWAY_TOKEN if you set one) into the box. You see the live view and "Live · 2 fps". The page remembers the key until you close the tab; you can also bookmark `http://localhost:7860/eye#token=<key>`.
 
 ## 5. Talk to it from the phone
 
