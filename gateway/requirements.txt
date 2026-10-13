@@ -1,0 +1,3 @@
+pipecat-ai[webrtc,runner,silero,openai,anthropic,google,groq,sarvam]==1.12.0
+python-dotenv>=1.0
+pillow>=10
