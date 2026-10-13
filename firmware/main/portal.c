@@ -101,13 +101,29 @@ static esp_err_t root_get(httpd_req_t *r)
     return ESP_OK;
 }
 
-static void field(const char *body, const char *name, char *out, size_t n)
+// Copies form field `name` into out. A missing field leaves out unchanged.
+// Returns false if the value doesn't fit (instead of silently keeping the old one).
+static bool field(const char *body, const char *name, char *out, size_t n)
 {
-    char tmp[200] = { 0 };
-    if (httpd_query_key_value(body, name, tmp, sizeof(tmp)) == ESP_OK) {
-        url_decode(tmp);
-        strlcpy(out, tmp, n);
-    }
+    char tmp[3 * 160] = { 0 };   // longest field (url, 159 chars) fully %-encoded
+    esp_err_t err = httpd_query_key_value(body, name, tmp, sizeof(tmp));
+    if (err == ESP_ERR_NOT_FOUND) return true;
+    if (err != ESP_OK) return false;
+    url_decode(tmp);
+    if (strlen(tmp) >= n) return false;
+    strlcpy(out, tmp, n);
+    return true;
+}
+
+static esp_err_t not_saved(httpd_req_t *r, const char *why)
+{
+    httpd_resp_set_type(r, "text/html");
+    httpd_resp_sendstr_chunk(r, HEAD);
+    httpd_resp_sendstr_chunk(r, "<h2>Not saved</h2><p>");
+    httpd_resp_sendstr_chunk(r, why);
+    httpd_resp_sendstr_chunk(r, "</p><p><a href=/>Back</a></p>");
+    httpd_resp_sendstr_chunk(r, NULL);
+    return ESP_OK;
 }
 
 static void restart_task(void *arg)
@@ -118,16 +134,18 @@ static void restart_task(void *arg)
 
 static esp_err_t save_post(httpd_req_t *r)
 {
-    char body[600] = { 0 };
-    int len = r->content_len < (int)sizeof(body) - 1 ? r->content_len : (int)sizeof(body) - 1;
+    // Room for every field at its maximum length, fully %-encoded
+    char body[1024] = { 0 };
+    if (r->content_len >= sizeof(body)) return not_saved(r, "The form was too long.");
+    int len = r->content_len;
     for (int got = 0; got < len;) {
         int n = httpd_req_recv(r, body + got, len - got);
         if (n <= 0) return ESP_FAIL;
         got += n;
     }
     ce_config_t old = g_cfg;
-    field(body, "ssid", g_cfg.ssid, sizeof(g_cfg.ssid));
-    field(body, "url", g_cfg.url, sizeof(g_cfg.url));
+    bool ok = field(body, "ssid", g_cfg.ssid, sizeof(g_cfg.ssid));
+    ok &= field(body, "url", g_cfg.url, sizeof(g_cfg.url));
     size_t ul = strlen(g_cfg.url);
     while (ul && g_cfg.url[ul - 1] == '/') g_cfg.url[--ul] = 0;   // no trailing slash
     // An empty password / key means "keep the saved one", but only while the
@@ -135,18 +153,18 @@ static esp_err_t save_post(httpd_req_t *r)
     // could point the camera at their own server and receive the saved key.
     g_cfg.pass[0] = 0;
     g_cfg.key[0] = 0;
-    field(body, "pass", g_cfg.pass, sizeof(g_cfg.pass));
-    field(body, "key", g_cfg.key, sizeof(g_cfg.key));
+    ok &= field(body, "pass", g_cfg.pass, sizeof(g_cfg.pass));
+    ok &= field(body, "key", g_cfg.key, sizeof(g_cfg.key));
+    if (!ok) {
+        g_cfg = old;
+        return not_saved(r, "A value was too long (Wi-Fi name 32, password 63, gateway URL 159, key 64 characters).");
+    }
     if (!g_cfg.pass[0] && !strcmp(g_cfg.ssid, old.ssid)) strlcpy(g_cfg.pass, old.pass, sizeof(g_cfg.pass));
     if (!g_cfg.key[0] && !strcmp(g_cfg.url, old.url)) strlcpy(g_cfg.key, old.key, sizeof(g_cfg.key));
     if (!config_complete()) {
         g_cfg = old;
-        httpd_resp_set_type(r, "text/html");
-        httpd_resp_sendstr_chunk(r, HEAD);
-        httpd_resp_sendstr_chunk(r, "<h2>Not saved</h2><p>Wi-Fi name, gateway URL and device key are all needed "
-                                    "(type the key again if you changed the gateway URL).</p><p><a href=/>Back</a></p>");
-        httpd_resp_sendstr_chunk(r, NULL);
-        return ESP_OK;
+        return not_saved(r, "Wi-Fi name, gateway URL and device key are all needed "
+                            "(type the key again if you changed the gateway URL).");
     }
     config_save();
     ESP_LOGI(TAG, "saved: ssid=%s url=%s", g_cfg.ssid, g_cfg.url);
