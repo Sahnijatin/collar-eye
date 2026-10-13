@@ -7,6 +7,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_timer.h"
 #include "net.h"
 #include "portal.h"
 #include "config.h"
@@ -16,6 +17,8 @@ static EventGroupHandle_t ev;
 #define BIT_UP BIT0
 static char ap_name[24];
 static volatile bool ap_on;
+static esp_timer_handle_t retry_timer;
+static int retries;
 
 // The setup hotspot is open, so it only stays up until the saved Wi-Fi works.
 // Runs as its own task so the Wi-Fi event handler never blocks on httpd_stop.
@@ -37,14 +40,28 @@ static void close_ap_later(void)
     if (was_on) xTaskCreate(stop_ap_task, "ap_off", 3072, NULL, 3, NULL);
 }
 
+static void retry_cb(void *arg) { esp_wifi_connect(); }
+
+// Keep retrying in the background, but back off: every attempt scans all
+// channels, and while the setup hotspot is up that knocks phones off it.
+static void schedule_retry(void)
+{
+    if (!g_cfg.ssid[0] || esp_timer_is_active(retry_timer)) return;
+    int ms = retries < 5 ? 500 << retries : 15000;
+    if (ap_on && ms < 10000) ms = 10000;
+    retries++;
+    esp_timer_start_once(retry_timer, (uint64_t)ms * 1000);
+}
+
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(ev, BIT_UP);
-        if (g_cfg.ssid[0]) esp_wifi_connect();   // keep retrying in the background
+        schedule_retry();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data;
         ESP_LOGI(TAG, "online, IP " IPSTR, IP2STR(&e->ip_info.ip));
+        retries = 0;
         xEventGroupSetBits(ev, BIT_UP);
         close_ap_later();
     }
@@ -80,6 +97,8 @@ void net_start(void)
     esp_read_mac(m, ESP_MAC_WIFI_STA);
     snprintf(ap_name, sizeof(ap_name), "CollarEye-%02X%02X", m[4], m[5]);
 
+    const esp_timer_create_args_t rt = { .callback = retry_cb, .name = "wifi_retry" };
+    ESP_ERROR_CHECK(esp_timer_create(&rt, &retry_timer));
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
