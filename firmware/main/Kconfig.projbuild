@@ -1,0 +1,15 @@
+menu "Collar Eye"
+
+choice CE_BOARD
+    prompt "Camera board"
+    default CE_BOARD_S3_CAM
+    help
+        Which camera pin layout to use.
+
+config CE_BOARD_S3_CAM
+    bool "ESP32-S3 WROOM CAM (Freenove-style / ESP32-S3-EYE pinout)"
+config CE_BOARD_XIAO_S3_SENSE
+    bool "Seeed XIAO ESP32S3 Sense"
+endchoice
+
+endmenu
