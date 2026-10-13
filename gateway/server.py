@@ -12,7 +12,9 @@ Routes added on top of Pipecat's dev runner:
 """
 
 import asyncio
+import hmac
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -42,8 +44,12 @@ from providers import env, make_gemini_live, make_llm, make_stt, make_tts
 
 DEVICE_KEY = env("DEVICE_KEY", "change-me")
 GATEWAY_TOKEN = env("GATEWAY_TOKEN", DEVICE_KEY)   # for /frame.jpg, /say (MCP server)
-if DEVICE_KEY.startswith("change-me"):
-    logger.warning("DEVICE_KEY is still the default. Set a long random value in .env before exposing the gateway.")
+if DEVICE_KEY.startswith("change-me") or GATEWAY_TOKEN.startswith("change-me"):
+    # The tunnel makes the gateway public, so a well-known key would let anyone
+    # watch the camera and talk into the earphones.
+    logger.error("DEVICE_KEY (or GATEWAY_TOKEN) is still the default. Set a long random value in .env, e.g. "
+                 "python -c \"import secrets;print(secrets.token_urlsafe(24))\"")
+    sys.exit(1)
 MODE = env("MODE", "cascade")                      # cascade | gemini_live
 PHONE_VIDEO = env("PHONE_VIDEO", "on") == "on"     # show the camera view on the phone
 
@@ -63,7 +69,7 @@ active = {"task": None}
 # ---------------------------------------------------------------- device API
 
 def _check(key: str | None, expected: str):
-    if key != expected:
+    if not hmac.compare_digest((key or "").encode(), expected.encode()):
         raise HTTPException(401, "bad key")
 
 
@@ -91,10 +97,15 @@ async def frame_jpg(x_gateway_token: str | None = Header(None)):
 
 
 @app.get("/status")
-async def status():
+async def status(x_gateway_token: str | None = Header(None)):
     s = hub.status()
     s["voice_session"] = active["task"] is not None
     s["mode"] = MODE
+    try:
+        _check(x_gateway_token, GATEWAY_TOKEN)
+    except HTTPException:
+        # Public view: is it working. Device id (MAC), firmware and camera settings need the token.
+        s = {k: s[k] for k in ("connected", "fps", "last_frame_age_s", "resolution", "voice_session", "mode")}
     return s
 
 
@@ -137,7 +148,7 @@ if(t)save(t);else $('f').style.display='block';
 $('f').onsubmit=e=>{e.preventDefault();save($('k').value.trim());$('f').style.display='none';};
 let busy=false;
 async function tick(){
-  try{const s=await (await fetch('/status')).json();
+  try{const s=await (await fetch('/status',{headers:t?{'X-Gateway-Token':t}:{}})).json();
   $('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off');}catch(e){}
   if(!t||busy)return;
   busy=true;

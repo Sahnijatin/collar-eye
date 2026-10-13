@@ -62,7 +62,7 @@ async def look_burst(count: int = 3, interval_seconds: float = 1.0) -> list[Imag
 async def camera_status() -> dict:
     """Is the camera online, how fresh is the view, and is a voice session open on the phone."""
     async with httpx.AsyncClient() as c:
-        r = await c.get(f"{GATEWAY}/status", timeout=10)
+        r = await c.get(f"{GATEWAY}/status", headers=HEADERS, timeout=10)
         r.raise_for_status()
         return r.json()
 
