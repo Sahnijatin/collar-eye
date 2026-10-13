@@ -96,7 +96,7 @@ static void task(void *arg)
                                           (unsigned long)sent, (unsigned)len, s_fps);
         } else {
             fails++;
-            if (status == 401) ESP_LOGE(TAG, "gateway says the device key is wrong (re-run setup: hold BOOT at power-on)");
+            if (status == 401) ESP_LOGE(TAG, "gateway says the device key is wrong (re-run setup: hold BOOT for 3 s)");
             else ESP_LOGW(TAG, "upload failed (%s, HTTP %d)", esp_err_to_name(err), status);
             esp_http_client_cleanup(h);   // fresh connection next time
             h = NULL;

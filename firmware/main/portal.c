@@ -92,7 +92,7 @@ static esp_err_t root_get(httpd_req_t *r)
     httpd_resp_sendstr_chunk(r, "\"><label>Device key (DEVICE_KEY in the gateway .env)</label><input name=key maxlength=64 required value=\"");
     esc(r, g_cfg.key);
     httpd_resp_sendstr_chunk(r, "\"><button>Save and restart</button></form>"
-                                "<p>To come back here later, hold the BOOT button while plugging the camera in.</p>");
+                                "<p>To come back here later, hold the BOOT button for 3 seconds while the camera is on.</p>");
     httpd_resp_sendstr_chunk(r, NULL);
     return ESP_OK;
 }

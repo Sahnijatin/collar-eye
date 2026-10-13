@@ -105,7 +105,7 @@ Check: `http://localhost:7860/status` on the laptop shows JSON.
 3. Save. The camera restarts and joins the hotspot.
 4. Reconnect your phone to normal data/hotspot.
 
-To change any of this later: hold **BOOT** while plugging the camera in, keep holding for 1 second, and the setup hotspot comes back. If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying.
+To change any of this later: with the camera powered on and running, hold **BOOT** for 3 seconds. It forgets its settings, restarts, and the setup hotspot comes back. (Don't hold BOOT while plugging it in: that starts the chip's flashing mode instead.) If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying.
 
 Check: on the laptop open `http://localhost:7860/eye`. You see the live view and "Live · 2 fps".
 
@@ -183,7 +183,7 @@ The XIAO ESP32S3 Sense is about 21 x 17 mm with the camera on top. Flash `collar
 
 | Problem | Fix |
 |---|---|
-| `/eye` says "No camera" | Camera and laptop must be on the same hotspot. Check the gateway URL has the laptop's current IP (it can change). Hold BOOT at power-on to re-enter it. |
+| `/eye` says "No camera" | Camera and laptop must be on the same hotspot. Check the gateway URL has the laptop's current IP (it can change). Hold BOOT for 3 s while it is running to re-enter it. |
 | Camera log says the device key is wrong | DEVICE_KEY in `.env` and on the setup page must match exactly. |
 | Phone page connects but no voice | Earphones plugged in? Mic allowed? Is the phone on the same hotspot? Check the gateway log for STT/LLM errors (usually a wrong API key). |
 | Answers ignore the camera | The model doesn't take images. Pick a vision model. |
