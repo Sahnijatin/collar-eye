@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            gateway/requirements.txt
+            mcp/requirements.txt
+      - run: pip install -r gateway/requirements.txt -r mcp/requirements.txt pytest
+      - name: Gateway tests
+        working-directory: gateway
+        run: python -m pytest tests -q
+      - name: MCP server compiles
+        run: python -m py_compile mcp/mcp_eye.py
+
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        board: [s3cam, xiao]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick board
+        if: matrix.board == 'xiao'
+        run: echo "CONFIG_CE_BOARD_XIAO_S3_SENSE=y" > firmware/xiao.defaults
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.2
+          target: esp32s3
+          path: firmware
+          command: >-
+            idf.py ${{ matrix.board == 'xiao' && '-DSDKCONFIG_DEFAULTS="sdkconfig.defaults;xiao.defaults"' || '' }} build
