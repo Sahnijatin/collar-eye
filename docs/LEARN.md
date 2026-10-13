@@ -16,7 +16,7 @@ One path, in the order you'll need it. Free unless noted.
 - **Espressif's own video series:** search YouTube for "Espressif ESP-IDF tutorial" (the official Espressif channel).
 - **FreeRTOS basics** (tasks, delays, event groups, used in `net.c` and `uploader.c`): DigiKey "Introduction to RTOS" series by Shawn Hymel on YouTube.
 - **esp32-camera driver:** https://github.com/espressif/esp32-camera (read the README; our `cam.c` is a trimmed version of their example).
-- Hands-on: change the default fps in `uploader.c`, rebuild, flash, and see the change in `/eye`.
+- Hands-on: change the default fps (`s_fps`) in `uploader.c`, rebuild, flash, and see the change in `/eye`. (A value set later through `POST /camera` overrides it until the gateway restarts.)
 
 ## Week 3: the AI side
 

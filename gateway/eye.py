@@ -42,8 +42,10 @@ class EyeHub:
         self.device_info: dict = {}
         self.last_seen: float = 0.0
         self._times: deque[float] = deque(maxlen=20)
-        # Sent back to the device in every frame response, so it can be changed live
-        self.camera = {"fps": 2.0, "framesize": "VGA", "quality": 14}
+        # Sent back to the device in every frame response, so it can be changed live.
+        # Only settings changed through POST /camera are sent; until then the
+        # firmware's own defaults (2 fps, VGA, quality 14 in uploader.c / cam.c) apply.
+        self.camera: dict = {}
 
     def put(self, jpeg: bytes, device_id: str | None = None) -> Snapshot:
         with Image.open(io.BytesIO(jpeg)) as img:
