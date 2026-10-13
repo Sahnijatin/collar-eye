@@ -84,14 +84,18 @@ static esp_err_t root_get(httpd_req_t *r)
     httpd_resp_sendstr_chunk(r, "<h2>Collar Eye setup</h2><form method=post action=/save>"
                                 "<label>Wi-Fi name (your phone's hotspot works best)</label><input name=ssid maxlength=32 required value=\"");
     esc(r, g_cfg.ssid);
-    httpd_resp_sendstr_chunk(r, "\"><label>Wi-Fi password</label><input name=pass maxlength=63 autocomplete=off value=\"");
-    esc(r, g_cfg.pass);
-    httpd_resp_sendstr_chunk(r, "\"><label>Gateway URL</label><input name=url maxlength=159 required "
+    // The saved password and device key are never sent back to the page: this
+    // hotspot is open, so anyone nearby could read them.
+    httpd_resp_sendstr_chunk(r, "\"><label>Wi-Fi password</label><input name=pass type=password maxlength=63 autocomplete=off");
+    httpd_resp_sendstr_chunk(r, g_cfg.pass[0] ? " placeholder='saved: leave empty to keep it'>" : ">");
+    httpd_resp_sendstr_chunk(r, "<label>Gateway URL</label><input name=url maxlength=159 required "
                                 "placeholder='https://xxxx.trycloudflare.com' value=\"");
     esc(r, g_cfg.url);
-    httpd_resp_sendstr_chunk(r, "\"><label>Device key (DEVICE_KEY in the gateway .env)</label><input name=key maxlength=64 required value=\"");
-    esc(r, g_cfg.key);
-    httpd_resp_sendstr_chunk(r, "\"><button>Save and restart</button></form>"
+    httpd_resp_sendstr_chunk(r, "\"><label>Device key (DEVICE_KEY in the gateway .env)</label>"
+                                "<input name=key type=password maxlength=64 autocomplete=off");
+    httpd_resp_sendstr_chunk(r, g_cfg.key[0] ? " placeholder='saved: leave empty to keep it'>" : " required>");
+    httpd_resp_sendstr_chunk(r, "<button>Save and restart</button></form>"
+                                "<p>Changing the Wi-Fi name or the gateway URL needs the password / key typed again.</p>"
                                 "<p>To come back here later, hold the BOOT button for 3 seconds while the camera is on.</p>");
     httpd_resp_sendstr_chunk(r, NULL);
     return ESP_OK;
@@ -121,12 +125,29 @@ static esp_err_t save_post(httpd_req_t *r)
         if (n <= 0) return ESP_FAIL;
         got += n;
     }
+    ce_config_t old = g_cfg;
     field(body, "ssid", g_cfg.ssid, sizeof(g_cfg.ssid));
-    field(body, "pass", g_cfg.pass, sizeof(g_cfg.pass));
     field(body, "url", g_cfg.url, sizeof(g_cfg.url));
-    field(body, "key", g_cfg.key, sizeof(g_cfg.key));
     size_t ul = strlen(g_cfg.url);
     while (ul && g_cfg.url[ul - 1] == '/') g_cfg.url[--ul] = 0;   // no trailing slash
+    // An empty password / key means "keep the saved one", but only while the
+    // network / gateway stays the same. Otherwise someone on this open hotspot
+    // could point the camera at their own server and receive the saved key.
+    g_cfg.pass[0] = 0;
+    g_cfg.key[0] = 0;
+    field(body, "pass", g_cfg.pass, sizeof(g_cfg.pass));
+    field(body, "key", g_cfg.key, sizeof(g_cfg.key));
+    if (!g_cfg.pass[0] && !strcmp(g_cfg.ssid, old.ssid)) strlcpy(g_cfg.pass, old.pass, sizeof(g_cfg.pass));
+    if (!g_cfg.key[0] && !strcmp(g_cfg.url, old.url)) strlcpy(g_cfg.key, old.key, sizeof(g_cfg.key));
+    if (!config_complete()) {
+        g_cfg = old;
+        httpd_resp_set_type(r, "text/html");
+        httpd_resp_sendstr_chunk(r, HEAD);
+        httpd_resp_sendstr_chunk(r, "<h2>Not saved</h2><p>Wi-Fi name, gateway URL and device key are all needed "
+                                    "(type the key again if you changed the gateway URL).</p><p><a href=/>Back</a></p>");
+        httpd_resp_sendstr_chunk(r, NULL);
+        return ESP_OK;
+    }
     config_save();
     ESP_LOGI(TAG, "saved: ssid=%s url=%s", g_cfg.ssid, g_cfg.url);
     httpd_resp_set_type(r, "text/html");

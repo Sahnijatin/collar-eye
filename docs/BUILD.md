@@ -105,7 +105,7 @@ Check: `http://localhost:7860/status` on the laptop shows JSON.
 3. Save. The camera restarts and joins the hotspot.
 4. Reconnect your phone to normal data/hotspot.
 
-To change any of this later: with the camera powered on and running, hold **BOOT** for 3 seconds. It forgets its settings, restarts, and the setup hotspot comes back. (Don't hold BOOT while plugging it in: that starts the chip's flashing mode instead.) If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying.
+To change any of this later: with the camera powered on and running, hold **BOOT** for 3 seconds. It forgets its settings, restarts, and the setup hotspot comes back. (Don't hold BOOT while plugging it in: that starts the chip's flashing mode instead.) If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying, and closes it again as soon as it joins. The setup page never shows the saved password or key; leave those boxes empty to keep them.
 
 Check: on the laptop open `http://localhost:7860/eye` and type the DEVICE_KEY (or GATEWAY_TOKEN if you set one) into the box. You see the live view and "Live · 2 fps". The page remembers the key until you close the tab; you can also bookmark `http://localhost:7860/eye#token=<key>`.
 

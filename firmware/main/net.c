@@ -1,6 +1,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/task.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
@@ -14,7 +15,27 @@ static const char *TAG = "net";
 static EventGroupHandle_t ev;
 #define BIT_UP BIT0
 static char ap_name[24];
-static bool ap_on;
+static volatile bool ap_on;
+
+// The setup hotspot is open, so it only stays up until the saved Wi-Fi works.
+// Runs as its own task so the Wi-Fi event handler never blocks on httpd_stop.
+static void stop_ap_task(void *arg)
+{
+    portal_stop();
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    ESP_LOGI(TAG, "joined Wi-Fi, setup hotspot closed");
+    vTaskDelete(NULL);
+}
+
+static void close_ap_later(void)
+{
+    static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+    portENTER_CRITICAL(&mux);
+    bool was_on = ap_on;
+    ap_on = false;
+    portEXIT_CRITICAL(&mux);
+    if (was_on) xTaskCreate(stop_ap_task, "ap_off", 3072, NULL, 3, NULL);
+}
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -25,6 +46,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         ip_event_got_ip_t *e = data;
         ESP_LOGI(TAG, "online, IP " IPSTR, IP2STR(&e->ip_info.ip));
         xEventGroupSetBits(ev, BIT_UP);
+        close_ap_later();
     }
 }
 
@@ -40,7 +62,7 @@ static void start_ap(void)
     esp_wifi_set_mode(WIFI_MODE_APSTA);
     esp_wifi_set_config(WIFI_IF_AP, &ap);
     portal_start();
-    ap_on = true;
+    ap_on = true;   // set last: a join before this point is caught by net_start's re-check
     ESP_LOGW(TAG, "setup hotspot \"%s\" is on: join it and open http://192.168.4.1", ap_name);
 }
 
@@ -86,8 +108,9 @@ void net_start(void)
     esp_wifi_connect();
     ESP_LOGI(TAG, "joining \"%s\"", g_cfg.ssid);
     if (!net_wait_connected(20000)) {
-        ESP_LOGW(TAG, "can't join \"%s\" yet, opening setup hotspot too", g_cfg.ssid);
+        ESP_LOGW(TAG, "can't join \"%s\" yet, opening setup hotspot until it does", g_cfg.ssid);
         start_ap();
+        if (net_connected()) close_ap_later();   // joined while the hotspot was starting
     }
 }
 
