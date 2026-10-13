@@ -50,9 +50,19 @@ async def look_burst(count: int = 3, interval_seconds: float = 1.0) -> list[Imag
     """Take several frames a short time apart (max 6) to follow movement or a step in progress."""
     count = max(1, min(count, 6))
     frames = []
+    prev = None
+    loop = asyncio.get_running_loop()
     async with httpx.AsyncClient() as c:
         for i in range(count):
-            frames.append(Image(data=await _frame(c), format="jpeg"))
+            data = await _frame(c)
+            # The camera may send fewer frames per second than asked for: wait a
+            # little for a new one rather than returning the same picture twice.
+            deadline = loop.time() + 2.0
+            while data == prev and loop.time() < deadline:
+                await asyncio.sleep(0.1)
+                data = await _frame(c)
+            frames.append(Image(data=data, format="jpeg"))
+            prev = data
             if i < count - 1:
                 await asyncio.sleep(max(0.2, interval_seconds))
     return frames
