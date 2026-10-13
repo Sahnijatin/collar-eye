@@ -33,9 +33,12 @@ class AttachLatestFrame(FrameProcessor):
 
     def _attach(self, context):
         messages = context.get_messages()
+        # Only plain dict messages are touched. The context can also hold
+        # LLMSpecificMessage objects (Gemini thought signatures, saved thinking);
+        # those pass through as they are.
         # strip images from older turns
         for m in messages:
-            if isinstance(m.get("content"), list):
+            if isinstance(m, dict) and isinstance(m.get("content"), list):
                 m["content"] = [
                     p if p.get("type") != "image_url" else {"type": "text", "text": PLACEHOLDER}
                     for p in m["content"]
@@ -45,7 +48,7 @@ class AttachLatestFrame(FrameProcessor):
             import base64
             url = "data:image/jpeg;base64," + base64.b64encode(snap.jpeg).decode()
             for m in reversed(messages):
-                if m.get("role") == "user":
+                if isinstance(m, dict) and m.get("role") == "user":
                     content = m["content"]
                     if isinstance(content, str):
                         content = [{"type": "text", "text": content}]
