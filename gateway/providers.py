@@ -67,6 +67,9 @@ def make_llm(system_prompt: str):
     if provider in COMPATIBLE_BASE_URLS or provider == "compatible":
         from pipecat.services.openai.llm import OpenAILLMService
         base_url = env("LLM_BASE_URL", COMPATIBLE_BASE_URLS.get(provider))
+        if not base_url:
+            # without this the OpenAI client quietly falls back to api.openai.com
+            raise ValueError("Set LLM_BASE_URL for LLM_PROVIDER=compatible")
         if not model:
             raise ValueError(f"Set LLM_MODEL for provider '{provider}'")
         return OpenAILLMService(api_key=key or "none", base_url=base_url,
