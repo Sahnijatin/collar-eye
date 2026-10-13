@@ -176,22 +176,22 @@ EYE_PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="wi
 <img id=v style="width:100%;display:block"><div id=s style="padding:8px"></div>
 <script>
 const $=id=>document.getElementById(id);
-let t='';
+let t='',note='';
 try{t=new URLSearchParams(location.hash.slice(1)).get('token')||sessionStorage.getItem('eyeToken')||'';}catch(e){}
 if(location.hash)history.replaceState(null,'',location.pathname);
 function save(v){t=v;try{sessionStorage.setItem('eyeToken',v);}catch(e){}}
 if(t)save(t);else $('f').style.display='block';
-$('f').onsubmit=e=>{e.preventDefault();save($('k').value.trim());$('f').style.display='none';};
+$('f').onsubmit=e=>{e.preventDefault();save($('k').value.trim());note='';$('f').style.display='none';};
 let busy=false;
 async function tick(){
   try{const s=await (await fetch('/status',{headers:t?{'X-Gateway-Token':t}:{}})).json();
-  $('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off');}catch(e){}
+  $('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off')+note;}catch(e){}
   if(!t||busy)return;
   busy=true;
   try{
     const r=await fetch('/frame.jpg',{headers:{'X-Gateway-Token':t},cache:'no-store'});
     if(r.status===401){t='';try{sessionStorage.removeItem('eyeToken');}catch(e){}
-      $('f').style.display='block';$('s').textContent='Wrong token';}
+      $('f').style.display='block';note=' · wrong token, try again';}
     else if(r.ok){const u=URL.createObjectURL(await r.blob());const old=$('v').src;$('v').src=u;
       if(old.startsWith('blob:'))URL.revokeObjectURL(old);}
   }catch(e){}finally{busy=false;}
