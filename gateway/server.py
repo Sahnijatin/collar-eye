@@ -181,7 +181,7 @@ try{t=new URLSearchParams(location.hash.slice(1)).get('token')||sessionStorage.g
 if(location.hash)history.replaceState(null,'',location.pathname);
 function save(v){t=v;try{sessionStorage.setItem('eyeToken',v);}catch(e){}}
 if(t)save(t);else $('f').style.display='block';
-$('f').onsubmit=e=>{e.preventDefault();save($('k').value.trim());note='';$('f').style.display='none';};
+$('f').onsubmit=e=>{e.preventDefault();const v=$('k').value.trim();if(!v)return;save(v);note='';$('f').style.display='none';};
 let busy=false;
 async function tick(){
   try{const s=await (await fetch('/status',{headers:t?{'X-Gateway-Token':t}:{}})).json();
