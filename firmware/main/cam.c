@@ -55,7 +55,10 @@ bool eyecam_init(void)
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
         .pixel_format = PIXFORMAT_JPEG,
-        .frame_size = FRAMESIZE_VGA,
+        // JPEG buffers are sized once, at init, from frame_size (w*h/5). Init at the
+        // largest size the gateway may ask for (HD), then drop to VGA below, so
+        // switching to SVGA/HD later doesn't overflow the buffer and drop frames.
+        .frame_size = FRAMESIZE_HD,
         .jpeg_quality = 14,
         .fb_count = 2,
         .fb_location = CAMERA_FB_IN_PSRAM,
@@ -68,6 +71,7 @@ bool eyecam_init(void)
         return false;
     }
     sensor_t *s = esp_camera_sensor_get();
+    if (s) s->set_framesize(s, FRAMESIZE_VGA);
     ESP_LOGI(TAG, "camera ready, sensor PID 0x%x", s ? s->id.PID : 0);
     return true;
 }

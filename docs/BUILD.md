@@ -29,18 +29,9 @@ Check: a new port appears when you plug it in.
 
 ## 2. Flash the camera
 
-### Easiest: web flasher (Chrome or Edge on the laptop)
+There are no ready-made firmware files yet, so the first time you build it yourself with ESP-IDF. After that you can make a single file that flashes from the browser, with no install, onto more cameras.
 
-1. Get the right single-file firmware. Binaries aren't kept in git. To make one, build from source (below), then inside `firmware/build` run `python -m esptool --chip esp32s3 merge-bin -o collar-eye.bin @flash_args`.
-   - `collar-eye-s3cam.bin` for your current board.
-   - `collar-eye-xiao.bin` for the XIAO ESP32S3 Sense.
-2. Open https://espressif.github.io/esptool-js/
-3. Baud 460800, click **Connect**, pick the board's port.
-   - If it won't connect: hold **BOOT**, tap **RESET**, release BOOT, then connect again.
-4. Flash address `0x0`, choose the .bin, click **Program**. It takes about a minute.
-5. Click **Disconnect**, then press RESET on the board.
-
-### From source (to learn ESP-IDF)
+### Build and flash from source
 
 ```bash
 # ESP-IDF 5.4: https://docs.espressif.com/projects/esp-idf/en/v5.4.2/esp32s3/get-started/
@@ -49,6 +40,20 @@ idf.py set-target esp32s3
 idf.py menuconfig          # Collar Eye > Camera board (only if you use the XIAO)
 idf.py build flash monitor
 ```
+
+If it won't connect: hold **BOOT**, tap **RESET**, release BOOT, then run the command again.
+
+### Optional: one file for the web flasher (Chrome or Edge)
+
+1. After `idf.py build`, inside `firmware/build` run (the name is just a label, pick the one for the board you built):
+   ```bash
+   python -m esptool --chip esp32s3 merge_bin -o collar-eye-s3cam.bin @flash_args   # or collar-eye-xiao.bin
+   ```
+2. Open https://espressif.github.io/esptool-js/
+3. Baud 460800, click **Connect**, pick the board's port.
+   - If it won't connect: hold **BOOT**, tap **RESET**, release BOOT, then connect again.
+4. Flash address `0x0`, choose the .bin, click **Program**. It takes about a minute.
+5. Click **Disconnect**, then press RESET on the board.
 
 Check: on the phone's Wi-Fi list you see `CollarEye-XXXX`. In `idf.py monitor` you see `camera ready, sensor PID 0x3660`.
 
@@ -105,9 +110,9 @@ Check: `http://localhost:7860/status` on the laptop shows JSON.
 3. Save. The camera restarts and joins the hotspot.
 4. Reconnect your phone to normal data/hotspot.
 
-To change any of this later: hold **BOOT** while plugging the camera in, keep holding for 1 second, and the setup hotspot comes back. If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying.
+To change any of this later: with the camera powered on and running, hold **BOOT** for 3 seconds. It forgets its settings, restarts, and the setup hotspot comes back. (Don't hold BOOT while plugging it in: that starts the chip's flashing mode instead.) If the camera can't find the saved Wi-Fi for 20 seconds, it also opens the setup hotspot by itself, while still retrying, and closes it again as soon as it joins. The setup page never shows the saved password or key; leave those boxes empty to keep them.
 
-Check: on the laptop open `http://localhost:7860/eye`. You see the live view and "Live · 2 fps".
+Check: on the laptop open `http://localhost:7860/eye` and type the DEVICE_KEY (or GATEWAY_TOKEN if you set one) into the box. You see the live view and "Live · 2 fps". The page remembers the key until you close the tab; you can also bookmark `http://localhost:7860/eye#token=<key>`.
 
 ## 5. Talk to it from the phone
 
@@ -138,7 +143,7 @@ Check: it greets you, and when you ask "what do you see?" it describes what's in
   curl -X POST http://localhost:7860/camera -H "X-Gateway-Token: <DEVICE_KEY>" \
        -H "Content-Type: application/json" -d '{"vflip": true, "hmirror": true}'
   ```
-  The camera picks up the change with the next frame, no reflash. The same call changes `fps` (0.2 to 15), `framesize` (QVGA, VGA, SVGA, HD) and `quality` (10 best, 40 smallest).
+  The camera picks up the change with the next frame, no reflash. The same call changes `fps` (0.2 to 15), `framesize` (QVGA, VGA, SVGA, HD) and `quality` (10 best, 63 smallest; 10 to 20 is a good range). Invalid values are rejected with a message saying why.
 
 The board gets warm when streaming. That is normal. Don't seal it in a closed box without air holes.
 
@@ -177,15 +182,15 @@ Tools: `look`, `look_burst` (up to 6 frames to follow movement), `camera_status`
 
 ## 8. Upgrade to the XIAO (real collar size)
 
-The XIAO ESP32S3 Sense is about 21 x 17 mm with the camera on top. Flash `collar-eye-xiao.bin` (step 2) and everything else is the same. It has a battery pad underneath, so a small 3.7 V LiPo (300 to 500 mAh) can replace the power bank. **Solder the battery with the correct polarity (check with the multimeter first).** Reversed polarity kills the board.
+The XIAO ESP32S3 Sense is about 21 x 17 mm with the camera on top. Build with **Seeed XIAO ESP32S3 Sense** picked in `idf.py menuconfig` and flash it (step 2); everything else is the same. It has a battery pad underneath, so a small 3.7 V LiPo (300 to 500 mAh) can replace the power bank. **Solder the battery with the correct polarity (check with the multimeter first).** Reversed polarity kills the board.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `/eye` says "No camera" | Camera and laptop must be on the same hotspot. Check the gateway URL has the laptop's current IP (it can change). Hold BOOT at power-on to re-enter it. |
+| `/eye` says "No camera" | Camera and laptop must be on the same hotspot. Check the gateway URL has the laptop's current IP (it can change). Hold BOOT for 3 s while it is running to re-enter it. |
 | Camera log says the device key is wrong | DEVICE_KEY in `.env` and on the setup page must match exactly. |
 | Phone page connects but no voice | Earphones plugged in? Mic allowed? Is the phone on the same hotspot? Check the gateway log for STT/LLM errors (usually a wrong API key). |
 | Answers ignore the camera | The model doesn't take images. Pick a vision model. |
 | Slow answers | Use `framesize` QVGA, a faster model (Groq, Gemini Flash), or `MODE=gemini_live`. |
-| Laptop IP keeps changing | Use the tunnel URL as the gateway URL instead (https works, just slower per frame). |
+| Laptop IP keeps changing | Give the laptop a fixed IP on the phone hotspot if your phone allows it, or use a named Cloudflare tunnel (its URL stays the same) as the gateway URL; https works, just slower per frame. A quick `trycloudflare.com` URL changes every time you start it, so it won't help here. |

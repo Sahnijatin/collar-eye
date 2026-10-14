@@ -37,7 +37,7 @@ Most LLMs (Claude, GPT, GLM, Kimi, Llama) take images, not a video stream. The g
 
 ## Quick start
 
-1. Flash the camera (web flasher, no install): see [docs/BUILD.md](docs/BUILD.md#2-flash-the-camera).
+1. Build and flash the camera with ESP-IDF: see [docs/BUILD.md](docs/BUILD.md#2-flash-the-camera). After the first build you can make a single file for the browser flasher.
 2. Turn on your phone hotspot. Connect the laptop to it.
 3. Gateway:
    ```bash
@@ -48,7 +48,7 @@ Most LLMs (Claude, GPT, GLM, Kimi, Llama) take images, not a video stream. The g
    python server.py -t webrtc --host 0.0.0.0
    ```
 4. Join the camera's `CollarEye-XXXX` hotspot from your phone, fill in hotspot name, password, gateway URL `http://<laptop-ip>:7860` and the DEVICE_KEY.
-5. Open `http://<laptop-ip>:7860/eye` to see the camera. For voice, open the HTTPS tunnel URL `/client` on the phone (see BUILD.md, step 5), plug in earphones, tap Connect, talk.
+5. Open `http://<laptop-ip>:7860/eye` and enter the DEVICE_KEY (or GATEWAY_TOKEN) to see the camera. For voice, open the HTTPS tunnel URL `/client` on the phone (see BUILD.md, step 5), plug in earphones, tap Connect, talk.
 
 ## Cost
 
@@ -64,8 +64,9 @@ The hardware is cheap. **The real cost is AI usage**, and it scales with how man
 ## Status
 
 - Gateway: tested end to end with mock AI (phone audio + video, frame attached to the LLM call, all 3 adapter formats).
+- Tests: `cd gateway && python -m pytest tests` (unit tests, no network or API keys needed).
 - MCP server: tested (all 5 tools).
-- Firmware: builds clean for both boards on ESP-IDF 5.4.2. Needs first test on your hardware.
+- Firmware: builds clean for both boards on ESP-IDF 5.4.2. Needs first test on your hardware (including the BOOT-button reset and SVGA/HD frame sizes).
 - Not yet tested with real API keys, and gemini_live mode is untested.
 
 License: MIT.

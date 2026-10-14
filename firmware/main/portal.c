@@ -84,26 +84,46 @@ static esp_err_t root_get(httpd_req_t *r)
     httpd_resp_sendstr_chunk(r, "<h2>Collar Eye setup</h2><form method=post action=/save>"
                                 "<label>Wi-Fi name (your phone's hotspot works best)</label><input name=ssid maxlength=32 required value=\"");
     esc(r, g_cfg.ssid);
-    httpd_resp_sendstr_chunk(r, "\"><label>Wi-Fi password</label><input name=pass maxlength=63 autocomplete=off value=\"");
-    esc(r, g_cfg.pass);
-    httpd_resp_sendstr_chunk(r, "\"><label>Gateway URL</label><input name=url maxlength=159 required "
+    // The saved password and device key are never sent back to the page: this
+    // hotspot is open, so anyone nearby could read them.
+    httpd_resp_sendstr_chunk(r, "\"><label>Wi-Fi password</label><input name=pass type=password maxlength=63 autocomplete=off");
+    httpd_resp_sendstr_chunk(r, g_cfg.pass[0] ? " placeholder='saved: leave empty to keep it'>" : ">");
+    httpd_resp_sendstr_chunk(r, "<label>Gateway URL</label><input name=url maxlength=159 required "
                                 "placeholder='https://xxxx.trycloudflare.com' value=\"");
     esc(r, g_cfg.url);
-    httpd_resp_sendstr_chunk(r, "\"><label>Device key (DEVICE_KEY in the gateway .env)</label><input name=key maxlength=64 required value=\"");
-    esc(r, g_cfg.key);
-    httpd_resp_sendstr_chunk(r, "\"><button>Save and restart</button></form>"
-                                "<p>To come back here later, hold the BOOT button while plugging the camera in.</p>");
+    httpd_resp_sendstr_chunk(r, "\"><label>Device key (DEVICE_KEY in the gateway .env)</label>"
+                                "<input name=key type=password maxlength=64 autocomplete=off");
+    httpd_resp_sendstr_chunk(r, g_cfg.key[0] ? " placeholder='saved: leave empty to keep it'>" : " required>");
+    httpd_resp_sendstr_chunk(r, "<button>Save and restart</button></form>"
+                                "<p>Changing the Wi-Fi name or the gateway URL needs the password / key typed again.</p>"
+                                "<p>To come back here later, hold the BOOT button for 3 seconds while the camera is on.</p>");
     httpd_resp_sendstr_chunk(r, NULL);
     return ESP_OK;
 }
 
-static void field(const char *body, const char *name, char *out, size_t n)
+// Copies form field `name` into out. A missing field leaves out unchanged.
+// Returns false if the value doesn't fit (instead of silently keeping the old one).
+static bool field(const char *body, const char *name, char *out, size_t n)
 {
-    char tmp[200] = { 0 };
-    if (httpd_query_key_value(body, name, tmp, sizeof(tmp)) == ESP_OK) {
-        url_decode(tmp);
-        strlcpy(out, tmp, n);
-    }
+    char tmp[3 * 160] = { 0 };   // longest field (url, 159 chars) fully %-encoded
+    esp_err_t err = httpd_query_key_value(body, name, tmp, sizeof(tmp));
+    if (err == ESP_ERR_NOT_FOUND) return true;
+    if (err != ESP_OK) return false;
+    url_decode(tmp);
+    if (strlen(tmp) >= n) return false;
+    strlcpy(out, tmp, n);
+    return true;
+}
+
+static esp_err_t not_saved(httpd_req_t *r, const char *why)
+{
+    httpd_resp_set_type(r, "text/html");
+    httpd_resp_sendstr_chunk(r, HEAD);
+    httpd_resp_sendstr_chunk(r, "<h2>Not saved</h2><p>");
+    httpd_resp_sendstr_chunk(r, why);
+    httpd_resp_sendstr_chunk(r, "</p><p><a href=/>Back</a></p>");
+    httpd_resp_sendstr_chunk(r, NULL);
+    return ESP_OK;
 }
 
 static void restart_task(void *arg)
@@ -114,19 +134,38 @@ static void restart_task(void *arg)
 
 static esp_err_t save_post(httpd_req_t *r)
 {
-    char body[600] = { 0 };
-    int len = r->content_len < (int)sizeof(body) - 1 ? r->content_len : (int)sizeof(body) - 1;
+    // Room for every field at its maximum length, fully %-encoded
+    char body[1024] = { 0 };
+    if (r->content_len >= sizeof(body)) return not_saved(r, "The form was too long.");
+    int len = r->content_len;
     for (int got = 0; got < len;) {
         int n = httpd_req_recv(r, body + got, len - got);
         if (n <= 0) return ESP_FAIL;
         got += n;
     }
-    field(body, "ssid", g_cfg.ssid, sizeof(g_cfg.ssid));
-    field(body, "pass", g_cfg.pass, sizeof(g_cfg.pass));
-    field(body, "url", g_cfg.url, sizeof(g_cfg.url));
-    field(body, "key", g_cfg.key, sizeof(g_cfg.key));
+    ce_config_t old = g_cfg;
+    bool ok = field(body, "ssid", g_cfg.ssid, sizeof(g_cfg.ssid));
+    ok &= field(body, "url", g_cfg.url, sizeof(g_cfg.url));
     size_t ul = strlen(g_cfg.url);
     while (ul && g_cfg.url[ul - 1] == '/') g_cfg.url[--ul] = 0;   // no trailing slash
+    // An empty password / key means "keep the saved one", but only while the
+    // network / gateway stays the same. Otherwise someone on this open hotspot
+    // could point the camera at their own server and receive the saved key.
+    g_cfg.pass[0] = 0;
+    g_cfg.key[0] = 0;
+    ok &= field(body, "pass", g_cfg.pass, sizeof(g_cfg.pass));
+    ok &= field(body, "key", g_cfg.key, sizeof(g_cfg.key));
+    if (!ok) {
+        g_cfg = old;
+        return not_saved(r, "A value was too long (Wi-Fi name 32, password 63, gateway URL 159, key 64 characters).");
+    }
+    if (!g_cfg.pass[0] && !strcmp(g_cfg.ssid, old.ssid)) strlcpy(g_cfg.pass, old.pass, sizeof(g_cfg.pass));
+    if (!g_cfg.key[0] && !strcmp(g_cfg.url, old.url)) strlcpy(g_cfg.key, old.key, sizeof(g_cfg.key));
+    if (!config_complete()) {
+        g_cfg = old;
+        return not_saved(r, "Wi-Fi name, gateway URL and device key are all needed "
+                            "(type the key again if you changed the gateway URL).");
+    }
     config_save();
     ESP_LOGI(TAG, "saved: ssid=%s url=%s", g_cfg.ssid, g_cfg.url);
     httpd_resp_set_type(r, "text/html");

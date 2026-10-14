@@ -12,7 +12,9 @@ Routes added on top of Pipecat's dev runner:
 """
 
 import asyncio
+import hmac
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -42,8 +44,12 @@ from providers import env, make_gemini_live, make_llm, make_stt, make_tts
 
 DEVICE_KEY = env("DEVICE_KEY", "change-me")
 GATEWAY_TOKEN = env("GATEWAY_TOKEN", DEVICE_KEY)   # for /frame.jpg, /say (MCP server)
-if DEVICE_KEY.startswith("change-me"):
-    logger.warning("DEVICE_KEY is still the default. Set a long random value in .env before exposing the gateway.")
+if DEVICE_KEY.startswith("change-me") or GATEWAY_TOKEN.startswith("change-me"):
+    # The tunnel makes the gateway public, so a well-known key would let anyone
+    # watch the camera and talk into the earphones.
+    logger.error("DEVICE_KEY (or GATEWAY_TOKEN) is still the default. Set a long random value in .env, e.g. "
+                 "python -c \"import secrets;print(secrets.token_urlsafe(24))\"")
+    sys.exit(1)
 MODE = env("MODE", "cascade")                      # cascade | gemini_live
 PHONE_VIDEO = env("PHONE_VIDEO", "on") == "on"     # show the camera view on the phone
 
@@ -63,7 +69,7 @@ active = {"task": None}
 # ---------------------------------------------------------------- device API
 
 def _check(key: str | None, expected: str):
-    if key != expected:
+    if not hmac.compare_digest((key or "").encode(), expected.encode()):
         raise HTTPException(401, "bad key")
 
 
@@ -74,15 +80,18 @@ async def device_frame(request: Request, x_device_key: str | None = Header(None)
     body = await request.body()
     if len(body) < 100 or body[:2] != b"\xff\xd8":
         raise HTTPException(400, "expected a JPEG")
-    hub.put(body, x_device_id)
+    try:
+        hub.put(body, x_device_id)
+    except Exception:  # PIL can't read it: corrupt or not really a JPEG
+        raise HTTPException(400, "expected a JPEG")
     if x_device_info:
         hub.device_info = {"info": x_device_info}
     return JSONResponse(hub.camera)
 
 
 @app.get("/frame.jpg")
-async def frame_jpg(token: str | None = None, x_gateway_token: str | None = Header(None)):
-    _check(token or x_gateway_token, GATEWAY_TOKEN)
+async def frame_jpg(x_gateway_token: str | None = Header(None)):
+    _check(x_gateway_token, GATEWAY_TOKEN)
     snap = hub.latest()
     if not snap:
         raise HTTPException(404, "no frames yet")
@@ -90,21 +99,59 @@ async def frame_jpg(token: str | None = None, x_gateway_token: str | None = Head
                     headers={"Cache-Control": "no-store", "X-Frame-Age": f"{snap.age:.2f}"})
 
 
+# Registered at import, before Pipecat's runner adds its own GET /status (which
+# only lists transports), so this one wins. The prebuilt /client doesn't call
+# /status; if you switch to the runner's /start flow, move this route.
 @app.get("/status")
-async def status():
+async def status(x_gateway_token: str | None = Header(None)):
     s = hub.status()
     s["voice_session"] = active["task"] is not None
     s["mode"] = MODE
+    try:
+        _check(x_gateway_token, GATEWAY_TOKEN)
+    except HTTPException:
+        # Public view: is it working. Device id (MAC), firmware and camera settings need the token.
+        s = {k: s[k] for k in ("connected", "fps", "last_frame_age_s", "resolution", "voice_session", "mode")}
     return s
+
+
+def _number(lo: float, hi: float, integer: bool = False):
+    def ok(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+            return False
+        return not integer or float(v).is_integer()
+    return ok
+
+
+# The same limits the firmware enforces (uploader.c / cam.c); anything else it would ignore.
+CAMERA_SETTINGS = {
+    "fps": (_number(0.2, 15), "a number from 0.2 to 15"),
+    "framesize": (lambda v: v in ("QVGA", "VGA", "SVGA", "HD"), "QVGA, VGA, SVGA or HD"),
+    "quality": (_number(10, 63, integer=True), "a whole number from 10 (best) to 63 (smallest)"),
+    "vflip": (lambda v: isinstance(v, bool), "true or false"),
+    "hmirror": (lambda v: isinstance(v, bool), "true or false"),
+}
 
 
 @app.post("/camera")
 async def set_camera(request: Request, x_gateway_token: str | None = Header(None)):
+    """Change camera settings live; the device picks them up with its next frame."""
     _check(x_gateway_token, GATEWAY_TOKEN)
-    body = await request.json()
-    for k in ("fps", "framesize", "quality", "vflip", "hmirror"):
-        if k in body:
-            hub.camera[k] = body[k]
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(400, "send a JSON object, e.g. {\"fps\": 3}")
+    unknown = set(body) - set(CAMERA_SETTINGS)
+    if unknown:
+        raise HTTPException(400, f"unknown setting(s): {', '.join(sorted(unknown))}")
+    for k, v in body.items():
+        valid, expected = CAMERA_SETTINGS[k]
+        if not valid(v):
+            raise HTTPException(400, f"{k} must be {expected}")
+    for k, v in body.items():
+        hub.camera[k] = int(v) if k == "quality" else v
     return hub.camera
 
 
@@ -119,20 +166,43 @@ async def say(request: Request, x_gateway_token: str | None = Header(None)):
     return {"ok": True}
 
 
-@app.get("/eye", response_class=HTMLResponse)
-async def eye_page(token: str = ""):
-    return f"""<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+# Static page: nothing from the request is put into the HTML. The token is
+# typed once (or passed as #token=... which never reaches the server), kept in
+# sessionStorage and sent as a header, so it never shows up in URLs or logs.
+EYE_PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Collar Eye</title><body style="margin:0;background:#000;color:#9aa3b2;font:14px system-ui">
+<form id=f style="display:none;padding:12px"><input id=k type=password placeholder="Gateway token (DEVICE_KEY)"
+ style="width:70%;padding:8px"> <button>Open</button></form>
 <img id=v style="width:100%;display:block"><div id=s style="padding:8px"></div>
 <script>
-const t={token!r};
-async function tick(){{
-  document.getElementById('v').src='/frame.jpg?token='+encodeURIComponent(t)+'&_='+Date.now();
-  try{{const s=await (await fetch('/status')).json();
-  document.getElementById('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off');}}catch(e){{}}
-}}
+const $=id=>document.getElementById(id);
+let t='',note='';
+try{t=new URLSearchParams(location.hash.slice(1)).get('token')||sessionStorage.getItem('eyeToken')||'';}catch(e){}
+if(location.hash)history.replaceState(null,'',location.pathname);
+function save(v){t=v;try{sessionStorage.setItem('eyeToken',v);}catch(e){}}
+if(t)save(t);else $('f').style.display='block';
+$('f').onsubmit=e=>{e.preventDefault();const v=$('k').value.trim();if(!v)return;save(v);note='';$('f').style.display='none';};
+let busy=false;
+async function tick(){
+  try{const s=await (await fetch('/status',{headers:t?{'X-Gateway-Token':t}:{}})).json();
+  $('s').textContent=(s.connected?'Live':'No camera')+' · '+s.fps+' fps · '+(s.resolution||'')+' · voice '+(s.voice_session?'on':'off')+note;}catch(e){}
+  if(!t||busy)return;
+  busy=true;
+  try{
+    const r=await fetch('/frame.jpg',{headers:{'X-Gateway-Token':t},cache:'no-store'});
+    if(r.status===401){t='';try{sessionStorage.removeItem('eyeToken');}catch(e){}
+      $('f').style.display='block';note=' · wrong token, try again';}
+    else if(r.ok){const u=URL.createObjectURL(await r.blob());const old=$('v').src;$('v').src=u;
+      if(old.startsWith('blob:'))URL.revokeObjectURL(old);}
+  }catch(e){}finally{busy=false;}
+}
 setInterval(tick,500);tick();
 </script>"""
+
+
+@app.get("/eye", response_class=HTMLResponse)
+async def eye_page():
+    return EYE_PAGE
 
 
 # ---------------------------------------------------------------- voice bot
