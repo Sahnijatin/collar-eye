@@ -14,6 +14,7 @@ import os
 
 import httpx
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.types import Image
 
 GATEWAY = os.getenv("EYE_GATEWAY", "http://localhost:7860").rstrip("/")
@@ -33,7 +34,8 @@ mcp = MCPServer(
 async def _frame(client: httpx.AsyncClient) -> bytes:
     r = await client.get(f"{GATEWAY}/frame.jpg", headers=HEADERS, timeout=10)
     if r.status_code == 404:
-        raise RuntimeError("The camera hasn't sent any frames yet. Is it powered and on Wi-Fi?")
+        # ToolError: the message reaches the model (other exceptions are hidden from it)
+        raise ToolError("The camera hasn't sent any frames yet. Is it powered and on Wi-Fi?")
     r.raise_for_status()
     return r.content
 
@@ -94,6 +96,8 @@ async def set_camera(fps: float | None = None, framesize: str | None = None, qua
     body = {k: v for k, v in {"fps": fps, "framesize": framesize, "quality": quality}.items() if v is not None}
     async with httpx.AsyncClient() as c:
         r = await c.post(f"{GATEWAY}/camera", json=body, headers=HEADERS, timeout=10)
+        if r.status_code == 400:  # the gateway says which value is wrong and why
+            raise ToolError(r.json().get("detail", "invalid camera setting"))
         r.raise_for_status()
         return r.json()
 
